@@ -16,6 +16,8 @@ struct Config {
 
 static Config cfg;
 
+inline void configSave();
+
 inline void configDefaults() {
   cfg.magic = CONFIG_MAGIC;
   memset(cfg.ssid, 0, sizeof(cfg.ssid));
