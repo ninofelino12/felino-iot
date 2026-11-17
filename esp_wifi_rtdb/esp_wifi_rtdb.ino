@@ -7,6 +7,7 @@
  * - If the saved SSID is unavailable or connection fails, switches to AP mode
  *   with a captive portal (DNS redirect) to reconfigure SSID/password/RTDB host.
  * - Displays status and SSID on a 0.96" OLED display (I2C: SDA=GPIO14, SCL=GPIO12).
+ * - Features Over-The-Air (OTA) update via Web browser (/update) and ArduinoOTA.
  *
  * Board selection is compile-time: build for "NodeMCU 1.0 (ESP-12E Module)"
  * or any ESP32 board; the sketch auto-detects via ESP8266/ESP32 macros.
@@ -14,7 +15,7 @@
  * Dependencies:
  *   - Firebase ESP Client (mobizt)  [for RTDB]
  *   - Adafruit GFX Library & Adafruit SSD1306 [for 0.96" OLED]
- *   - Board core built-ins: WiFi, WebServer, DNSServer, EEPROM, Wire
+ *   - Board core built-ins: WiFi, WebServer, DNSServer, EEPROM, Wire, Update, ArduinoOTA
  */
 
 #include "config.h"
@@ -23,12 +24,16 @@
   #include <ESP8266WiFi.h>
   #include <ESP8266WebServer.h>
   #include <DNSServer.h>
+  #include <Updater.h>
+  #include <ArduinoOTA.h>
   #define WEB_SERVER ESP8266WebServer
   #define BOARD_NAME "ESP8266 NodeMCU"
 #elif defined(ESP32)
   #include <WiFi.h>
   #include <WebServer.h>
   #include <DNSServer.h>
+  #include <Update.h>
+  #include <ArduinoOTA.h>
   #define WEB_SERVER WebServer
   #define BOARD_NAME "ESP32"
 #else
@@ -111,15 +116,17 @@ String getPortalHtml() {
   html += "<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n";
   html += "<title>ESP Config</title>\n";
   html += "<style>\n";
-  html += "body{font-family:sans-serif;max-width:420px;margin:20px auto;padding:0 16px}\n";
-  html += "h1{font-size:1.4rem}\n";
+  html += "body{font-family:sans-serif;max-width:420px;margin:20px auto;padding:0 16px;background:#f4f4f9;color:#333}\n";
+  html += "h1{font-size:1.4rem;color:#0066cc}\n";
   html += "label{display:block;margin-top:12px;font-weight:600}\n";
   html += "input{width:100%;padding:8px;margin-top:4px;box-sizing:border-box}\n";
-  html += "button{margin-top:18px;padding:10px 16px;width:100%;background:#0066cc;color:#fff;border:none;border-radius:6px;font-size:1rem}\n";
+  html += "button{margin-top:18px;padding:10px 16px;width:100%;background:#0066cc;color:#fff;border:none;border-radius:6px;font-size:1rem;cursor:pointer}\n";
+  html += "button:hover{background:#004999}\n";
   html += ".note{font-size:.85rem;color:#555;margin-top:8px}\n";
+  html += "a{color:#0066cc;text-decoration:none}\n";
   html += "</style></head><body>\n";
   html += "<h1>ESP Wi-Fi / RTDB Config</h1>\n";
-  html += "<p class=\"note\">Board: " + String(BOARD_NAME) + "</p>\n";
+  html += "<p class=\"note\">Board: " + String(BOARD_NAME) + " | MAC: " + WiFi.macAddress() + " | Free Heap: " + String(ESP.getFreeHeap()) + " bytes | <a href=\"/update\">OTA Update</a></p>\n";
   html += "<form method=\"POST\" action=\"/save\">\n";
   html += "<label>Wi-Fi SSID</label>\n";
   html += "<input name=\"ssid\" maxlength=\"32\" required value=\"" + String(cfg.ssid) + "\">\n";
@@ -135,9 +142,70 @@ String getPortalHtml() {
   return html;
 }
 
+// ---------- STA Status HTML ----------
+String getStaStatusHtml() {
+  String html = "<!DOCTYPE html>\n";
+  html += "<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n";
+  html += "<title>ESP Device Status</title>\n";
+  html += "<style>\n";
+  html += "body{font-family:sans-serif;max-width:420px;margin:20px auto;padding:0 16px;background:#f4f4f9;color:#333}\n";
+  html += "h1{font-size:1.4rem;color:#0066cc}\n";
+  html += ".card{background:#fff;padding:16px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1);margin-bottom:14px}\n";
+  html += "p{margin:8px 0}\n";
+  html += "a.btn{display:block;text-align:center;margin-top:12px;padding:10px 16px;background:#0066cc;color:#fff;text-decoration:none;border-radius:6px;font-size:1rem}\n";
+  html += "a.btn:hover{background:#004999}\n";
+  html += ".secondary{background:#6c757d;margin-top:8px}\n";
+  html += ".secondary:hover{background:#5a6268}\n";
+  html += "</style></head><body>\n";
+  html += "<h1>ESP Wi-Fi RTDB</h1>\n";
+  html += "<div class=\"card\">\n";
+  html += "<p><b>Board:</b> " + String(BOARD_NAME) + "</p>\n";
+  html += "<p><b>MAC Address:</b> " + WiFi.macAddress() + "</p>\n";
+  html += "<p><b>Free Heap Memory:</b> " + String(ESP.getFreeHeap()) + " bytes</p>\n";
+  html += "<p><b>Wi-Fi SSID:</b> " + String(cfg.ssid) + "</p>\n";
+  html += "<p><b>IP Address:</b> " + WiFi.localIP().toString() + "</p>\n";
+  html += "<p><b>RTDB Host:</b> " + String(cfg.rtdbHost) + "</p>\n";
+  html += "<a class=\"btn\" href=\"/update\">Firmware OTA Update</a>\n";
+  html += "<a class=\"btn secondary\" href=\"/config\">Reconfigure Wi-Fi / RTDB</a>\n";
+  html += "</div>\n";
+  html += "</body></html>\n";
+  return html;
+}
+
+// ---------- Update HTML ----------
+String getUpdateHtml() {
+  String html = "<!DOCTYPE html>\n";
+  html += "<html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n";
+  html += "<title>ESP OTA Update</title>\n";
+  html += "<style>\n";
+  html += "body{font-family:sans-serif;max-width:420px;margin:20px auto;padding:0 16px;background:#f4f4f9;color:#333}\n";
+  html += "h1{font-size:1.4rem;color:#0066cc}\n";
+  html += "form{background:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}\n";
+  html += "label{display:block;margin-top:12px;font-weight:600}\n";
+  html += "input[type=file]{margin-top:8px;width:100%}\n";
+  html += "button{margin-top:18px;padding:10px 16px;width:100%;background:#0066cc;color:#fff;border:none;border-radius:6px;font-size:1rem;cursor:pointer}\n";
+  html += "button:hover{background:#004999}\n";
+  html += ".note{font-size:.85rem;color:#555;margin-top:12px}\n";
+  html += "a{color:#0066cc;text-decoration:none}\n";
+  html += "</style></head><body>\n";
+  html += "<h1>ESP OTA Firmware Update</h1>\n";
+  html += "<p class=\"note\">Board: " + String(BOARD_NAME) + " | MAC: " + WiFi.macAddress() + " | Free Heap: " + String(ESP.getFreeHeap()) + " bytes | <a href=\"/\">&larr; Back to Home</a></p>\n";
+  html += "<form method=\"POST\" action=\"/update\" enctype=\"multipart/form-data\">\n";
+  html += "<label>Select compiled .bin firmware file</label>\n";
+  html += "<input type=\"file\" name=\"update\" accept=\".bin\" required>\n";
+  html += "<button type=\"submit\">Upload &amp; Update</button>\n";
+  html += "</form>\n";
+  html += "</body></html>\n";
+  return html;
+}
+
 // ---------- Portal handlers ----------
 void handleRoot() {
   server.send(200, "text/html", getPortalHtml());
+}
+
+void handleStaRoot() {
+  server.send(200, "text/html", getStaStatusHtml());
 }
 
 void handleSave() {
@@ -165,9 +233,32 @@ void handleSave() {
   ESP.restart();
 }
 
+void handleConfigRedirect() {
+  server.send(200, "text/html", getPortalHtml());
+}
+
+void handleUpdateGet() {
+  server.send(200, "text/html", getUpdateHtml());
+}
+
+void handleUpdatePost() {
+  bool success = !Update.hasError();
+  server.send(200, "text/html", success ?
+    "<html><body><h2>OTA Update Success! Rebooting...</h2></body></html>" :
+    "<html><body><h2>OTA Update Failed!</h2><a href=\"/update\">Try Again</a></body></html>");
+  delay(1000);
+  if (success) {
+    ESP.restart();
+  }
+}
+
 void handleNotFound() {
-  server.sendHeader("Location", String("http://") + AP_IP.toString() + "/", true);
-  server.send(302, "text/plain", "");
+  if (apMode) {
+    server.sendHeader("Location", String("http://") + AP_IP.toString() + "/", true);
+    server.send(302, "text/plain", "");
+  } else {
+    server.send(404, "text/plain", "Not Found");
+  }
 }
 
 // ---------- Start AP mode ----------
@@ -180,6 +271,34 @@ void startApMode() {
 
   server.on("/", handleRoot);
   server.on("/save", HTTP_POST, handleSave);
+  server.on("/update", HTTP_GET, handleUpdateGet);
+  server.on("/update", HTTP_POST, handleUpdatePost, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      showOled("OTA Update", "Receiving...", upload.filename);
+      uint32_t maxSketchSpace = 
+#if defined(ESP8266)
+        (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+#elif defined(ESP32)
+        UPDATE_SIZE_UNKNOWN;
+#endif
+      if (!Update.begin(maxSketchSpace)) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) {
+        Serial.printf("Update Success: %u bytes\n", upload.totalSize);
+        showOled("OTA Success", "Rebooting...", "");
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
   server.onNotFound(handleNotFound);
   server.begin();
 
@@ -234,6 +353,44 @@ bool connectSta() {
   return true;
 }
 
+// ---------- ArduinoOTA Setup ----------
+void setupArduinoOTA() {
+  ArduinoOTA.setHostname(("esp-rtdb-" + macSuffix()).c_str());
+
+  ArduinoOTA.onStart([]() {
+    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+    Serial.println("Start updating " + type);
+    showOled("ArduinoOTA", "Updating...", type);
+  });
+
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+    showOled("ArduinoOTA", "Update Success", "Rebooting...");
+  });
+
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+    char buf[16];
+    snprintf(buf, sizeof(buf), "Progress: %u%%", (unsigned int)(progress / (total / 100)));
+    showOled("ArduinoOTA", "Updating...", buf);
+  });
+
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    String errStr = "";
+    if (error == OTA_AUTH_ERROR) errStr = "Auth Failed";
+    else if (error == OTA_BEGIN_ERROR) errStr = "Begin Failed";
+    else if (error == OTA_CONNECT_ERROR) errStr = "Connect Failed";
+    else if (error == OTA_RECEIVE_ERROR) errStr = "Receive Failed";
+    else if (error == OTA_END_ERROR) errStr = "End Failed";
+    Serial.println(errStr);
+    showOled("OTA Error", errStr, "Failed");
+  });
+
+  ArduinoOTA.begin();
+  Serial.println("ArduinoOTA initialized.");
+}
+
 // ---------- Firebase init ----------
 void initFirebase() {
   fbConfig.host = cfg.rtdbHost;
@@ -273,6 +430,44 @@ void setup() {
   }
 
   initFirebase();
+
+  // Start Web Server & ArduinoOTA in STA mode
+  server.on("/", handleStaRoot);
+  server.on("/config", handleConfigRedirect);
+  server.on("/save", HTTP_POST, handleSave);
+  server.on("/update", HTTP_GET, handleUpdateGet);
+  server.on("/update", HTTP_POST, handleUpdatePost, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      showOled("OTA Update", "Receiving...", upload.filename);
+      uint32_t maxSketchSpace = 
+#if defined(ESP8266)
+        (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
+#elif defined(ESP32)
+        UPDATE_SIZE_UNKNOWN;
+#endif
+      if (!Update.begin(maxSketchSpace)) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) {
+        Serial.printf("Update Success: %u bytes\n", upload.totalSize);
+        showOled("OTA Success", "Rebooting...", "");
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+  server.onNotFound(handleNotFound);
+  server.begin();
+
+  setupArduinoOTA();
+  Serial.println("Web Server and ArduinoOTA active in STA mode.");
 }
 
 // ---------- Loop ----------
@@ -282,6 +477,10 @@ void loop() {
     server.handleClient();
     return;
   }
+
+  // Handle network OTA and web server clients
+  ArduinoOTA.handle();
+  server.handleClient();
 
   // Keep WiFi alive
   if (WiFi.status() != WL_CONNECTED) {

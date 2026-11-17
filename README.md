@@ -44,6 +44,19 @@ No valid config is stored, so the board boots into AP mode:
 If the saved SSID is not found or connection fails, the board re-enters AP mode
 automatically. You can also erase EEPROM via `configClear()` or reflash.
 
+## Over-The-Air (OTA) Update
+
+Firmware ini dilengkapi dua metode OTA (Over-The-Air):
+
+1. **Web OTA (`/update`)**:
+   - Saat ESP terhubung ke Wi-Fi (STA mode), buka browser di jaringan yang sama ke alamat IP device (misal `http://192.168.1.50/update` atau klik link "OTA Update" di halaman portal/status).
+   - Unggah file binary firmware (`.bin`) hasil kompilasi.
+   - Device akan melakukan flashing otomatis dan reboot.
+
+2. **ArduinoOTA**:
+   - Mendukung update nirkabel langsung dari Arduino IDE / `arduino-cli` di jaringan lokal yang sama.
+   - Hostname target: `esp-rtdb-XXXX` (sesuai MAC address suffix).
+
 ## Notes
 
 - RTDB host must be given WITHOUT scheme, e.g. `xxx-default-rtdb.firebaseio.com`.

@@ -92,3 +92,22 @@ arduino-cli upload -p /dev/ttyUSB0 --fqbn esp8266:esp8266:nodemcuv2 esp_wifi_rtd
 3. Setelah reboot, board akan mencoba terhubung ke Wi-Fi:
    - **OLED** menampilkan status `Connecting...` lalu `WiFi Connected` beserta SSID dan IP Address lokal.
    - Jika koneksi gagal, board otomatis kembali ke **AP Mode** untuk konfigurasi ulang.
+
+---
+
+## 6. Melakukan Update Firmware via OTA (Over-The-Air)
+
+### A. Web Browser OTA (`/update`)
+1. Compile firmware menjadi file `.bin` menggunakan script helper yang disediakan:
+   ```bash
+   cd esp_wifi_rtdb
+   ./compile_bin.sh esp32    # atau esp8266
+   ```
+   File `.bin` hasil kompilasi akan otomatis tersimpan di folder `esp_wifi_rtdb/build/`.
+2. Buka browser pada komputer/smartphone yang terhubung ke jaringan Wi-Fi yang sama dengan ESP.
+3. Akses `http://<IP_ESP>/update` (atau klik link **OTA Update** di halaman portal/status ESP).
+4. Pilih file `.bin`, klik **Upload & Update**, tunggu hingga proses selesai dan ESP melakukan reboot otomatis.
+
+### B. ArduinoOTA
+1. Pastikan komputer dan ESP berada dalam satu jaringan lokal.
+2. Lakukan upload nirkabel via `arduino-cli` atau Arduino IDE dengan memilih port network atau hostname `esp-rtdb-XXXX`.
