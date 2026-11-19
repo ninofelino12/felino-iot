@@ -26,17 +26,25 @@ Pastikan Anda telah memasang:
 
 ---
 
-## 3. Kompilasi & Upload Pertama (via USB)
+## 3. Kompilasi, Upload & Monitor (via USB)
 Hubungkan ESP32 ke komputer menggunakan kabel USB ke port serial (misal: `/dev/ttyUSB0` atau `COM3`).
 
 Anda dapat menggunakan script otomatis yang telah disediakan di folder proyek:
-```bash
-./build_and_upload.sh
-```
+- **Kompilasi & Upload:**
+  ```bash
+  ./build_and_upload.sh
+  ```
+- **Monitor Serial (Log & IP Address):**
+  ```bash
+  ./monitor.sh
+  ```
+  *(Atau tentukan port custom: `./monitor.sh /dev/ttyUSB1`)*
+
 Atau manual via `arduino-cli`:
 ```bash
 arduino-cli compile --fqbn esp32:esp32:esp32 .
 arduino-cli upload -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32 .
+arduino-cli monitor -p /dev/ttyUSB0 -b 115200
 ```
 
 ---

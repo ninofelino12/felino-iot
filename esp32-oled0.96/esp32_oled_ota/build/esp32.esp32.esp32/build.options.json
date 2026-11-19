@@ -1,0 +1,9 @@
+{
+  "additionalFiles": "../..,../..,../..",
+  "compiler.optimization_flags": "-Os",
+  "customBuildProperties": "",
+  "fqbn": "esp32:esp32:esp32",
+  "hardwareFolders": "/home/ninofelino12/.arduino15/packages/esp32/hardware/esp32/3.3.12,/home/ninofelino12/.arduino15/packages/esp32/hardware/esp32/3.3.12",
+  "otherLibrariesFolders": "/home/ninofelino12/Arduino/libraries",
+  "sketchLocation": "/home/ninofelino12/felino-iot/esp32-oled0.96/esp32_oled_ota"
+}
